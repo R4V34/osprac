@@ -4,47 +4,61 @@
 #include <stdbool.h>
 #include <signal.h>
 
-// Sender
-// My info
-int sender_pid;
-int current_bit_index = 0;
-int result_number = 0;
-bool received_value = false;
+//Sender
+//My info
+int receiver_pid;
+int value_sent;
+bool can_send = true;
 
 
-// All handlers should notify the sender.
-void sigusr1_handler_bit(int nsig) {
-	result_number |= (1 << current_bit_index++);
-	kill(sender_pid, SIGUSR1);
+void receiver_signal_handler(int nsig) {
+	can_send = true;
 }
 
 
-void sigusr2_handler_nobit(int nsig) {
-	current_bit_index++;
-	kill(sender_pid, SIGUSR1);
-}
+void send_value() {
+	int bits_count = sizeof(int) * 8;
 
+  for (int i = 0; i < bits_count; ++i) {
+		// We must not send anything until the previous was successfully received.
+		while (!can_send);
 
-void sigchld_handler(int nsig) {
-	received_value = true;
+		// Iterate over separate bits, send them.
+		if ((value_sent & (1 << i)) != 0) {
+			kill(receiver_pid, SIGUSR1);
+		}
+		else {
+			kill(receiver_pid, SIGUSR2);
+		}
+		can_send = false;
+	}
+
+	// We also need a signal that marks the end of delivery.
+	kill(receiver_pid, SIGCHLD);
 }
 
 int main() {
-	printf("PID of receiver: %d\n", (int)getpid());
-	printf("Enter the PID for sender:\n");
 
-  // Read sender program PID from console.
-	scanf("%d", &sender_pid);
+  // Get the signal from receiver.
+	signal(SIGUSR1, receiver_signal_handler);
 
-	printf("Waiting for result.\n");
-	// Set proper signal handlers and a handler for "end of stream".
-	signal(SIGUSR1, sigusr1_handler_bit);
-	signal(SIGUSR2, sigusr2_handler_nobit);
-	signal(SIGCHLD, sigchld_handler);
+  printf("PID of sender: %d\n", (int)getpid());
 
-	// Wait until number has been sent.
-	while (!received_value);
+	// Read the PID.
+	printf("Enter the PID for receiver:\n");
+	if (scanf("%d", &receiver_pid) < 0) {
+		printf("An error occurred while reading receiver PID.\n");
+		exit(-1);
+	}
 
-	printf("Received: %d\n", result_number);
+
+	// Get the value to send.
+	printf("Enter a valid integer:\n");
+	if (scanf("%d", &value_sent) < 0) {
+		printf("There was an error reading the number.\n");
+		exit(-2);
+	}
+
+	send_value();
 	return 0;
 }
